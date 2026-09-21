@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "top": "lootbags:block/machine_top",
+    "bottom": "lootbags:block/machine_bottom",
+    "side": "lootbags:block/machine_side",
+    "front": "lootbags:block/bag_opener_front"
+  }
+}

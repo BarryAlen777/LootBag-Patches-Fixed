@@ -1,0 +1,41 @@
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'org.jetbrains.kotlin.jvm' version '2.2.21'
+}
+
+version = '3.1.2.1-r2'
+group = 'com.furtabs.lootbags'
+base { archivesName = 'lootbags' }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+kotlin { jvmToolchain(17) }
+
+minecraft {
+    // 与脚手架保持一致：Forge 1.20.1 + official mappings
+    mappings channel: 'official', version: '1.20.1'
+}
+
+repositories {
+    // Kotlin for Forge（模组运行必需的 Kotlin 语言支持库）
+    maven {
+        name = 'Kotlin for Forge'
+        url = 'https://thedarkcolour.github.io/KotlinForForge/'
+        content { includeGroup 'thedarkcolour' }
+    }
+}
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.20.1-47.4.0'
+    implementation 'thedarkcolour:kotlinforforge:4.12.0'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+// 注意：这里曾经给 jar 清单写入 "MixinConfigs": "lootbags.mixins.json"，
+// 但工程里并没有这个 mixin 配置文件。Forge 启动时 Mixin 会去加载它，
+// 找不到就抛出 MixinInitialisationError（继承自 java.lang.Error，外层不 catch），
+// 导致游戏在生成崩溃报告之前直接退出。本模组没有使用任何 mixin，已移除该项。
+jar.finalizedBy('reobfJar')

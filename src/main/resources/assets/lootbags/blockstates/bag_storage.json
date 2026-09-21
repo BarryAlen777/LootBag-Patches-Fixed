@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "lootbags:block/bag_storage" },
+    "facing=south": { "model": "lootbags:block/bag_storage", "y": 180 },
+    "facing=west":  { "model": "lootbags:block/bag_storage", "y": 270 },
+    "facing=east":  { "model": "lootbags:block/bag_storage", "y": 90 }
+  }
+}
