@@ -22,12 +22,20 @@ class OpenLootBagMenu : AbstractContainerMenu {
     val lootHandler: ItemStackHandler
     private val usedHand: InteractionHand
 
+    /**
+     * The exact bag stack that was opened. Captured on purpose: if the player drags the bag to
+     * another slot while the GUI is open, looking it up again by hand would miss it and leave a
+     * free bag behind. Null on the client side, which never consumes anything.
+     */
+    private val bagStack: ItemStack?
+
     constructor(menuType: MenuType<out OpenLootBagMenu>, containerId: Int, inv: Inventory, buf: FriendlyByteBuf) : super(
         menuType,
         containerId
     ) {
         val handIdx = buf.readByte().toInt().coerceIn(0, InteractionHand.entries.size - 1)
         usedHand = InteractionHand.entries[handIdx]
+        bagStack = null
         lootHandler = newLootResultHandler()
         for (i in 0 until MAX_LOOT_BAG_ITEM_STACKS) {
             lootHandler.setStackInSlot(i, buf.readItem())
@@ -40,10 +48,12 @@ class OpenLootBagMenu : AbstractContainerMenu {
         containerId: Int,
         inv: Inventory,
         loot: ItemStackHandler,
-        usedHand: InteractionHand
+        usedHand: InteractionHand,
+        bagStack: ItemStack
     ) : super(menuType, containerId) {
         this.lootHandler = loot
         this.usedHand = usedHand
+        this.bagStack = bagStack
         addSlots(inv)
     }
 
@@ -68,28 +78,28 @@ class OpenLootBagMenu : AbstractContainerMenu {
         super.removed(player)
         if (player !is ServerPlayer) return
 
-        val bagStack = player.getItemInHand(usedHand)
-        if (bagStack.isEmpty || bagStack.item !is LootBagItem) return
+        // Use the exact stack captured when the bag was opened. Looking it up by hand again would
+        // miss the bag if the player moved it to another slot, and could hit a different bag.
+        val bag = bagStack ?: return
+        if (bag.isEmpty || bag.item !is LootBagItem) return
 
         // Check if all slots are empty
         val allTaken = (0 until MAX_LOOT_BAG_ITEM_STACKS).all { lootHandler.getStackInSlot(it).isEmpty }
-        
+
         if (allTaken) {
-            clearStoredOpenLoot(bagStack)
+            clearStoredOpenLoot(bag)
             if (!player.abilities.instabuild) {
-                bagStack.shrink(1)
+                bag.shrink(1)
             }
         } else {
-            // FIX: Convert the ItemStackHandler content into a List<ItemStack> 
-            // to match the utility function signature
             val itemsToSave = mutableListOf<ItemStack>()
             for (i in 0 until MAX_LOOT_BAG_ITEM_STACKS) {
                 val stack = lootHandler.getStackInSlot(i)
                 if (!stack.isEmpty) {
-                    itemsToSave.add(stack)
+                    itemsToSave.add(stack.copy())
                 }
             }
-            writeStoredOpenLoot(bagStack, itemsToSave)
+            writeStoredOpenLoot(bag, itemsToSave)
         }
     }
 
