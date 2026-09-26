@@ -1,9 +1,12 @@
 {
-  "parent": "minecraft:block/orientable",
+  "parent": "minecraft:block/cube",
   "textures": {
-    "top": "lootbags:block/machine_top",
-    "bottom": "lootbags:block/machine_bottom",
-    "side": "lootbags:block/machine_side",
-    "front": "lootbags:block/bag_opener_front"
+    "particle": "lootbags:block/bag_opener_front",
+    "down": "lootbags:block/machine_bottom",
+    "up": "lootbags:block/machine_top",
+    "north": "lootbags:block/bag_opener_front",
+    "east": "lootbags:block/machine_side",
+    "south": "lootbags:block/machine_side",
+    "west": "lootbags:block/machine_side"
   }
 }

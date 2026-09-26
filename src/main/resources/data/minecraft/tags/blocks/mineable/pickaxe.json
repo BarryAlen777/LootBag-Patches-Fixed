@@ -1,0 +1,8 @@
+{
+  "replace": false,
+  "values": [
+    "lootbags:loot_recycler",
+    "lootbags:bag_opener",
+    "lootbags:bag_storage"
+  ]
+}
