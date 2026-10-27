@@ -7,9 +7,7 @@ import net.minecraft.core.Direction
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
-import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.entity.player.Player
-import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.context.BlockPlaceContext
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.Block
@@ -20,6 +18,7 @@ import net.minecraft.world.level.block.entity.BlockEntityType
 import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
+import net.minecraft.world.level.material.PushReaction
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraftforge.network.NetworkHooks
 
@@ -27,6 +26,9 @@ class BagStorageBlock(
     properties: Properties = Properties.of()
         .strength(3.5F)
         .requiresCorrectToolForDrops()
+        // Containers must not be shoved around by pistons: the block entity would be left behind
+        // and the stored bags would vanish.
+        .pushReaction(PushReaction.BLOCK)
         .noOcclusion() 
 ) : LootBagEntityBlock(properties) {
 
@@ -62,16 +64,26 @@ class BagStorageBlock(
     }
 
     override fun use(state: BlockState, level: Level, pos: BlockPos, player: Player, hand: InteractionHand, hit: BlockHitResult): InteractionResult {
-        if (level.isClientSide) return InteractionResult.SUCCESS
-        val blockEntity = level.getBlockEntity(pos) as? BagStorageBlockEntity ?: return InteractionResult.FAIL
-        if (player is ServerPlayer) NetworkHooks.openScreen(player, blockEntity, pos)
-        return InteractionResult.CONSUME
+        if (!level.isClientSide && player is ServerPlayer) {
+            val blockEntity = level.getBlockEntity(pos) as? BagStorageBlockEntity
+            if (blockEntity != null) {
+                NetworkHooks.openScreen(player, blockEntity, pos)
+            }
+        }
+        return InteractionResult.sidedSuccess(level.isClientSide)
     }
 
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, movedByPiston: Boolean) {
         if (state.block != newState.block) {
-            level.getBlockEntity(pos)?.invalidateCaps()
-            super.onRemove(state, level, pos, newState, movedByPiston)
+            // The drop (a vanilla chest does the same) happens here instead of in the loot table:
+            // a loot table with `copy_nbt` produces nothing when the block is blown up,
+            // replaced by `/setblock`, broken in creative or broken without the right tool.
+            val blockEntity = level.getBlockEntity(pos)
+            if (blockEntity is BagStorageBlockEntity) {
+                blockEntity.drops()
+                blockEntity.invalidateCaps()
+            }
         }
+        super.onRemove(state, level, pos, newState, movedByPiston)
     }
 }

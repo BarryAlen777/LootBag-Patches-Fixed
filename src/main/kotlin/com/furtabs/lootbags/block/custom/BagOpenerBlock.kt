@@ -5,7 +5,6 @@ import com.furtabs.lootbags.block.entity.custom.BagOpenerBlockEntity
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.world.Containers
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.entity.player.Player
@@ -23,14 +22,17 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.level.block.state.properties.DirectionProperty
+import net.minecraft.world.level.material.PushReaction
 import net.minecraft.world.phys.BlockHitResult
-import net.minecraftforge.common.capabilities.ForgeCapabilities
 import net.minecraftforge.network.NetworkHooks
 
 class BagOpenerBlock(
     properties: Properties = Properties.of()
         .strength(3.5F)
         .requiresCorrectToolForDrops()
+        // Keeps pistons from yanking the machine around (the contents would be dropped and the
+        // block entity left behind).
+        .pushReaction(PushReaction.BLOCK)
 ) : BaseEntityBlock(properties) {
 
     companion object {
@@ -57,12 +59,10 @@ class BagOpenerBlock(
         hand: InteractionHand,
         hit: BlockHitResult
     ): InteractionResult {
-        if (!level.isClientSide) {
+        if (!level.isClientSide && player is ServerPlayer) {
             val entity = level.getBlockEntity(pos)
             if (entity is BagOpenerBlockEntity) {
-                NetworkHooks.openScreen(player as ServerPlayer, entity, pos)
-            } else {
-                throw IllegalStateException("Our Container provider is missing!")
+                NetworkHooks.openScreen(player, entity, pos)
             }
         }
         return InteractionResult.sidedSuccess(level.isClientSide)
@@ -95,11 +95,9 @@ class BagOpenerBlock(
         if (state.block != newState.block) {
             val blockEntity = level.getBlockEntity(pos)
             if (blockEntity is BagOpenerBlockEntity) {
-                blockEntity.getCapability(ForgeCapabilities.ITEM_HANDLER).ifPresent { handler ->
-                    for (i in 0 until handler.slots) {
-                        Containers.dropItemStack(level, pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), handler.getStackInSlot(i))
-                    }
-                }
+                // Drops BOTH inventories. Asking the capability with side == null only returns the
+                // input handler, so the 27 output slots used to be deleted along with the block.
+                blockEntity.drops()
                 blockEntity.invalidateCaps()
             }
         }

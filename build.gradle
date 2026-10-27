@@ -4,7 +4,7 @@ plugins {
     id 'org.jetbrains.kotlin.jvm' version '2.2.21'
 }
 
-version = '3.1.2.4-r6'
+version = '3.1.2.6-r10'
 group = 'com.furtabs.lootbags'
 base { archivesName = 'lootbags' }
 

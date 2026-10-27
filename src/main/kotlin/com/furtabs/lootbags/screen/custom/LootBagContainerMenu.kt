@@ -49,6 +49,19 @@ abstract class LootBagContainerMenu(
     abstract val targetBagType: LootBagType
     abstract val targetBagAmount: Int
 
+    private companion object {
+        /**
+         * Player main inventory (27) + hotbar (9). The hotbar is *part of* the player inventory,
+         * so this is 36, not 45: passing a larger endIndex to [moveItemStackTo] walks off the end
+         * of [slots] (38 here) and crashes the server through the "Container click" wrapper in
+         * AbstractContainerMenu.clicked.
+         */
+        private const val PLAYER_SLOT_COUNT = 36
+
+        /** Safety cap for "take everything"; a player inventory can never hold more than 36 bags. */
+        private const val MAX_BULK_MOVE = 64
+    }
+
     private fun isOutputPlaceholderSlot(slot: net.minecraft.world.inventory.Slot): Boolean =
         slot is LootBagSlotItemHandler && slot.isOutputSlot && targetBagAmount == 0
 
@@ -60,28 +73,69 @@ abstract class LootBagContainerMenu(
         addPlayerHotbarSlots(inv, playerHotbarSlotsOriginX, playerHotbarSlotsOriginY, ::addSlot)
     }
 
-    override fun quickMoveStack(player: Player, index: Int): ItemStack =
-        quickMoveStack(this, player, index, 2, ::moveItemStackTo).also {
+    override fun quickMoveStack(player: Player, index: Int): ItemStack {
+        val sourceSlot = if (index in slots.indices) slots[index] else null
+        if (sourceSlot is LootBagSlotItemHandler && sourceSlot.isOutputSlot) {
+            return moveAllFromOutput(sourceSlot)
+        }
+        return quickMoveStack(this, player, index, 2, ::moveItemStackTo).also {
             broadcastChanges()
         }
+    }
+
+    /**
+     * Shift-clicking the output takes *everything* that fits in the player inventory.
+     *
+     * A loot bag stacks to 1, so the vanilla "move one stack per click" behaviour meant one bag
+     * per click: converting 64 common bags into 16 uncommon ones took 16 clicks.
+     */
+    private fun moveAllFromOutput(slot: LootBagSlotItemHandler): ItemStack {
+        val first = slot.item.copy()
+        if (first.isEmpty || targetBagAmount <= 0) {
+            return ItemStack.EMPTY
+        }
+
+        var moved = 0
+        while (moved < MAX_BULK_MOVE && targetBagAmount > 0) {
+            val candidate = slot.item
+            if (candidate.isEmpty) {
+                break
+            }
+            val remaining = candidate.copy()
+            val placed = moveItemStackTo(remaining, 0, PLAYER_SLOT_COUNT, false)
+            val movedNow = candidate.count - remaining.count
+            if (!placed || movedNow <= 0) {
+                // Player inventory is full (nothing accepted): stop instead of looping on.
+                break
+            }
+            // Always remove through the slot: this is the path that deducts the virtual counter.
+            slot.remove(movedNow)
+            moved += movedNow
+        }
+
+        if (moved > 0) {
+            slot.setChanged()
+            broadcastChanges()
+        }
+        return first
+    }
 
     override fun moveItemStackTo(stack: ItemStack, startIndex: Int, endIndex: Int, reverseDirection: Boolean): Boolean {
         /*
-         * Due to some bugs inside the vanilla code, we need to override this method to reimplement the logic of
-         * moving items inside the container.
+         * Reimplementation of the vanilla logic with two extra guards:
+         *  - "placeholder" output slots (a virtual display with nothing behind it) are never merged into;
+         *  - the output slots are never used as a destination.
+         *
+         * The two loops must NOT be nested: loot bags have a max stack size of 1, so they are never
+         * "stackable" and the placement loop has to run anyway (otherwise shift-click does nothing).
          */
 
         var flag = false
-        var i = startIndex
-        if (reverseDirection) {
-            i = endIndex - 1
-        }
+        var i = if (reverseDirection) endIndex - 1 else startIndex
 
         if (stack.isStackable) {
             while (!stack.isEmpty && (if (reverseDirection) i >= startIndex else i < endIndex)) {
                 val slot = slots[i]
-                // If this slot is marked as fake, we skip it. (This judgement does not exist in vanilla code,
-                // preventing the item stack from being put into fake slots.)
                 if (!isOutputPlaceholderSlot(slot)) {
                     val itemStack = slot.item
                     if (!itemStack.isEmpty && ItemStack.isSameItemSameTags(stack, itemStack)) {
@@ -101,41 +155,27 @@ abstract class LootBagContainerMenu(
                     }
                 }
 
-                if (reverseDirection) {
-                    i--
-                } else {
-                    i++
-                }
+                i += if (reverseDirection) -1 else 1
             }
+        }
 
-            if (!stack.isEmpty) {
-                if (reverseDirection) {
-                    i = endIndex - 1
-                } else {
-                    i = startIndex
-                }
+        if (!stack.isEmpty) {
+            var j = if (reverseDirection) endIndex - 1 else startIndex
 
-                while (if (reverseDirection) i >= startIndex else i < endIndex) {
-                    val slot = slots[i]
-                    // If this slot is an output slot, we skip it. (This judgement does not exist in vanilla code,
-                    // preventing the item stack from being put into slots used for outputting purposes.)
-                    if (!(slot is LootBagSlotItemHandler && slot.isOutputSlot)) {
-                        val itemStack = slot.item
-                        if (itemStack.isEmpty && slot.mayPlace(stack)) {
-                            val l = slot.getMaxStackSize(stack)
-                            slot.setByPlayer(stack.split(min(stack.count, l)))
-                            slot.setChanged()
-                            flag = true
-                            break
-                        }
-                    }
-
-                    if (reverseDirection) {
-                        i--
-                    } else {
-                        i++
+            while (if (reverseDirection) j >= startIndex else j < endIndex) {
+                val slot = slots[j]
+                if (!(slot is LootBagSlotItemHandler && slot.isOutputSlot)) {
+                    val itemStack = slot.item
+                    if (itemStack.isEmpty && slot.mayPlace(stack)) {
+                        val l = slot.getMaxStackSize(stack)
+                        slot.setByPlayer(stack.split(min(stack.count, l)))
+                        slot.setChanged()
+                        flag = true
+                        break
                     }
                 }
+
+                j += if (reverseDirection) -1 else 1
             }
         }
 

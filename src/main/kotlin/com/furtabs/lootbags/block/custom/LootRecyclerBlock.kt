@@ -5,7 +5,6 @@ import com.furtabs.lootbags.block.entity.custom.LootRecyclerBlockEntity
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.world.Containers
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.entity.player.Player
@@ -22,14 +21,17 @@ import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.block.state.StateDefinition
 import net.minecraft.world.level.block.state.properties.BlockStateProperties
 import net.minecraft.world.level.block.state.properties.DirectionProperty
+import net.minecraft.world.level.material.PushReaction
 import net.minecraft.world.phys.BlockHitResult
-import net.minecraftforge.common.capabilities.ForgeCapabilities
 import net.minecraftforge.network.NetworkHooks
 
 class LootRecyclerBlock(
     properties: Properties = Properties.of()
         .strength(3.5F)
         .requiresCorrectToolForDrops()
+        // Containers must not be shoved around by pistons: the block entity would be left behind
+        // and the stored bags would vanish.
+        .pushReaction(PushReaction.BLOCK)
 ) : LootBagEntityBlock(properties) {
 
     companion object {
@@ -56,12 +58,10 @@ class LootRecyclerBlock(
         hand: InteractionHand,
         hit: BlockHitResult
     ): InteractionResult {
-        if (!level.isClientSide) {
+        if (!level.isClientSide && player is ServerPlayer) {
             val blockEntity = level.getBlockEntity(pos)
             if (blockEntity is LootRecyclerBlockEntity) {
-                NetworkHooks.openScreen(player as ServerPlayer, blockEntity, pos)
-            } else {
-                throw IllegalStateException("Our Container provider is missing!")
+                NetworkHooks.openScreen(player, blockEntity, pos)
             }
         }
         return InteractionResult.sidedSuccess(level.isClientSide)
@@ -86,14 +86,13 @@ class LootRecyclerBlock(
 
     override fun onRemove(state: BlockState, level: Level, pos: BlockPos, newState: BlockState, movedByPiston: Boolean) {
         if (state.block != newState.block) {
+            // Dropping here (like a vanilla chest) instead of relying on the loot table: a
+            // `copy_nbt` loot table produces nothing when the block is blown up, replaced by
+            // `/setblock`, broken in creative or broken without the right tool.
             val blockEntity = level.getBlockEntity(pos)
             if (blockEntity is LootRecyclerBlockEntity) {
-                blockEntity.getCapability(ForgeCapabilities.ITEM_HANDLER).ifPresent { handler ->
-                    for (i in 0 until handler.slots) {
-                        Containers.dropItemStack(level, pos.x.toDouble(), pos.y.toDouble(), pos.z.toDouble(), handler.getStackInSlot(i))
-                    }
-                }
-                level.updateNeighbourForOutputSignal(pos, this)
+                blockEntity.drops()
+                blockEntity.invalidateCaps()
             }
         }
         super.onRemove(state, level, pos, newState, movedByPiston)

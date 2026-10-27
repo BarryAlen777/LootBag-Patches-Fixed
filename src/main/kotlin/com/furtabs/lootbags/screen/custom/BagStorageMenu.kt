@@ -1,11 +1,11 @@
 package com.furtabs.lootbags.screen.custom
 
-import net.minecraft.core.NonNullList
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.world.entity.player.Inventory
 import net.minecraft.world.entity.player.Player
-import net.minecraft.world.inventory.*
-import net.minecraft.world.item.ItemStack
+import net.minecraft.world.inventory.ContainerData
+import net.minecraft.world.inventory.ContainerLevelAccess
+import net.minecraft.world.inventory.SimpleContainerData
 import net.minecraft.world.level.Level
 import com.furtabs.lootbags.block.ModBlocks
 import com.furtabs.lootbags.block.entity.custom.BagStorageBlockEntity
@@ -39,50 +39,29 @@ class BagStorageMenu(
         level: Level,
         extraData: FriendlyByteBuf
     ) : this(containerId, inv, level, level.getBlockEntity(extraData.readBlockPos()) as BagStorageBlockEntity,
-        SimpleContainerData(BagStorageBlockEntity.ContainerDataType.entries.size).also { data ->
-            data.set(BagStorageBlockEntity.ContainerDataType.TARGET_BAG_TYPE.ordinal, 114514)
-        })
-
-    init {
-        setSynchronizer(object : ContainerSynchronizer {
-            override fun sendInitialData(
-                container: AbstractContainerMenu,
-                items: NonNullList<ItemStack>,
-                carriedItem: ItemStack,
-                initialData: IntArray
-            ) {}
-
-            override fun sendSlotChange(container: AbstractContainerMenu, slot: Int, itemStack: ItemStack) {}
-
-            override fun sendCarriedChange(containerMenu: AbstractContainerMenu, stack: ItemStack) {}
-
-            override fun sendDataChange(container: AbstractContainerMenu, id: Int, value: Int) {
-                if (id == BagStorageBlockEntity.ContainerDataType.TARGET_BAG_TYPE.ordinal &&
-                    level.isClientSide) {
-                    sendSelectLootBagTypePacketToServer(value)
-                }
-            }
-        })
-    }
+        SimpleContainerData(BagStorageBlockEntity.ContainerDataType.entries.size))
 
     val storedBagAmount: Int
         get() = data.get(BagStorageBlockEntity.ContainerDataType.STORED_BAG_AMOUNT.ordinal)
 
     override var targetBagType: LootBagType
-        get() = LootBagType.entries[data.get(BagStorageBlockEntity.ContainerDataType.TARGET_BAG_TYPE.ordinal) %
-                LootBagType.entries.size]
+        get() = LootBagType.entries[
+            Math.floorMod(data.get(BagStorageBlockEntity.ContainerDataType.TARGET_BAG_TYPE.ordinal),
+                LootBagType.entries.size)
+        ]
         set(value) {
             data.set(BagStorageBlockEntity.ContainerDataType.TARGET_BAG_TYPE.ordinal, value.ordinal)
+            if (level.isClientSide) {
+                // Send the selection explicitly instead of relying on ContainerData diffing:
+                // switching back to ordinal 0 (COMMON) would otherwise produce no packet at all.
+                ModNetworks.CHANNEL.sendToServer(ServerboundSelectLootBagTypePacket(value.ordinal))
+            }
             broadcastChanges()
         }
 
     override val targetBagAmount: Int
-        get() = (storedBagAmount.toFloat() * LootBagType.COMMON.amountFactorEquivalentTo(targetBagType)).toInt()
+        get() = storedBagAmount / BagStorageBlockEntity.unitsPerBag(targetBagType)
 
     override fun stillValid(player: Player): Boolean =
         stillValid(ContainerLevelAccess.create(level, blockEntity.blockPos), player, ModBlocks.BAG_STORAGE.get())
-}
-
-private fun sendSelectLootBagTypePacketToServer(value: Int) {
-    ModNetworks.CHANNEL.sendToServer(ServerboundSelectLootBagTypePacket(value))
 }

@@ -31,13 +31,19 @@ fun rollLootBagDisplayedItemCount(random: RandomSource): Int {
 
 class LootGenerator(private val bagType: LootBagType) {
 
+    /**
+     * Rolls up to [maxStacks] stacks of loot from the server's chest-style loot tables.
+     *
+     * The caller decides how many stacks the bag contains (see [rollLootBagDisplayedItemCount]);
+     * this method must not roll that count a second time, otherwise the distribution is biased
+     * towards a single stack.
+     */
     fun generateLoot(
         level: ServerLevel,
         lootParamsBuilder: LootParams.Builder = LootParams.Builder(level),
         maxStacks: Int = MAX_LOOT_BAG_ITEM_STACKS
     ): List<ItemStack> {
-        val rolledCount = rollLootBagDisplayedItemCount(level.random)
-        val cap = rolledCount.coerceAtMost(maxStacks)
+        val cap = maxStacks.coerceAtLeast(1)
         val tier = bagType.rarity.toInt().coerceIn(0, 8)
 
         return when (bagType) {
@@ -81,10 +87,12 @@ private fun sampleFromRandomLootTables(
     contentTierMin: Int,
     contentTierMax: Int
 ): List<ItemStack> {
-    // Purge blocks to keep the loot pool clean and relevant
+    // Purge blocks to keep the loot pool clean and relevant. Entity tables are excluded too:
+    // under the CHEST parameter set they mostly produce mob junk (rotten flesh, bones, string)
+    // and any table that really needs an entity silently produces nothing.
     val allIds = level.server.lootData.getKeys(LootDataType.TABLE)
         .toList()
-        .filter { !it.path.startsWith("blocks/") }
+        .filter { !it.path.startsWith("blocks/") && !it.path.startsWith("entities/") }
 
     if (allIds.isEmpty()) return emptyList()
 

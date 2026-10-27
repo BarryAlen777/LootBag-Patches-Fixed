@@ -52,7 +52,9 @@ class BagStorageScreen(
         // Stored
         guiGraphics.drawString(font, Component.translatable("tooltip.lootbags.bag_storage.stored"),
             44, 16, 0x404040, false)
-        guiGraphics.drawString(font, menu.storedBagAmount.toString(),
+        // Show how many bags of the selected type are actually available, not the raw unit count:
+        // "Stored: 5 / Needed: 4" used to look like five bags could be taken.
+        guiGraphics.drawString(font, menu.targetBagAmount.toString(),
             44, 25, 0x404040, false)
         // Needed
         val neededAmount = menu.targetBagType.amountFactorEquivalentTo(LootBagType.COMMON).toInt()

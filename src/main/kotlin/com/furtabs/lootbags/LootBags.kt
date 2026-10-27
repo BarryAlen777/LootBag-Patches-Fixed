@@ -11,10 +11,7 @@ import com.furtabs.lootbags.screen.custom.BagStorageScreen
 import com.furtabs.lootbags.screen.custom.LootRecyclerScreen
 import com.furtabs.lootbags.screen.custom.OpenLootBagScreen
 import net.minecraft.client.gui.screens.MenuScreens
-import net.minecraftforge.api.distmarker.Dist
-import net.minecraftforge.eventbus.api.SubscribeEvent
 import net.minecraftforge.fml.common.Mod
-import net.minecraftforge.fml.common.Mod.EventBusSubscriber
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent
 import org.apache.logging.log4j.LogManager

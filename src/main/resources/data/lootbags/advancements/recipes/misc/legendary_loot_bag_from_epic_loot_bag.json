@@ -1,0 +1,34 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_epic_loot_bag": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": [
+              "lootbags:epic_loot_bag"
+            ]
+          }
+        ]
+      }
+    },
+    "has_the_recipe": {
+      "trigger": "minecraft:recipe_unlocked",
+      "conditions": {
+        "recipe": "lootbags:legendary_loot_bag_from_epic_loot_bag"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "has_epic_loot_bag",
+      "has_the_recipe"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "lootbags:legendary_loot_bag_from_epic_loot_bag"
+    ]
+  }
+}

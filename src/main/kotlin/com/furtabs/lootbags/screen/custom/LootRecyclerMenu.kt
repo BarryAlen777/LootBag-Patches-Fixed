@@ -46,7 +46,7 @@ class LootRecyclerMenu(
     override val targetBagType: LootBagType = LootBagType.COMMON
 
     override val targetBagAmount: Int
-        get() = (storedBagAmount.toFloat() * LootBagType.COMMON.amountFactorEquivalentTo(targetBagType)).toInt()
+        get() = storedBagAmount   // the recycler always produces COMMON bags (1 unit = 1 bag)
 
     override fun stillValid(player: Player): Boolean =
         stillValid(ContainerLevelAccess.create(level, blockEntity.blockPos), player, ModBlocks.LOOT_RECYCLER.get())

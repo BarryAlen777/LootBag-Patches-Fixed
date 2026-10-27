@@ -6,7 +6,6 @@ import net.minecraft.world.inventory.AbstractContainerMenu
 import net.minecraft.world.inventory.Slot
 import net.minecraft.world.item.ItemStack
 import com.furtabs.lootbags.LootBags
-import com.furtabs.lootbags.screen.custom.LootBagSlotItemHandler
 
 // CREDIT GOES TO: diesieben07 | https://github.com/diesieben07/SevenCommons
 // must assign a slot number to each of the slots used by the GUI.
@@ -26,6 +25,13 @@ private const val BE_INVENTORY_FIRST_SLOT_INDEX = VANILLA_FIRST_SLOT_INDEX + VAN
 /**
  * NOTE: This function **assumes** that the beginning indices of slots are supposed to be **vanilla** slots!
  * Ensure your slots' indices' order before calling this function.
+ *
+ * The move works on a *copy* of the source stack, so virtual output slots (which only mirror a
+ * counter) are not modified behind the handler's back. Once the target slots have accepted part of
+ * the stack, the same amount is removed from the source slot through [Slot.remove], which is the
+ * path that runs the handler's bookkeeping (counter deduction for virtual slots).
+ * Removing the whole source stack with [Slot.set] instead used to duplicate items whenever only a
+ * fraction of the stack could be moved.
  */
 fun quickMoveStack(
     menu: AbstractContainerMenu,
@@ -34,54 +40,41 @@ fun quickMoveStack(
     beInventorySlotCount: Int,
     moveItemStackTo: (ItemStack, Int, Int, Boolean) -> Boolean
 ): ItemStack {
-    val sourceSlot = menu.slots[index]
+    val sourceSlot = menu.slots.getOrNull(index) ?: return ItemStack.EMPTY
     if (!sourceSlot.hasItem()) {
         return ItemStack.EMPTY
     }
-    val sourceStackOld = sourceSlot.item.copy()
-    val sourceStack = sourceStackOld.copy()
-    if (sourceStack.isEmpty) {
-        return ItemStack.EMPTY
-    }
-    val copyOfSourceStack = sourceStack.copy()
 
-    // Check if the slot clicked is one of the vanilla container slots
-    if (index < VANILLA_FIRST_SLOT_INDEX + VANILLA_SLOT_COUNT) {
-        // This is a vanilla container slot so merge the stack into the tile inventory
-        if (!moveItemStackTo(sourceStack, BE_INVENTORY_FIRST_SLOT_INDEX,
-                BE_INVENTORY_FIRST_SLOT_INDEX + beInventorySlotCount, false)) {
+    val originalStack = sourceSlot.item.copy()
+    val movingStack = originalStack.copy()
+
+    val moved = when {
+        // A vanilla (player inventory / hotbar) slot: move into the block entity inventory.
+        index < VANILLA_FIRST_SLOT_INDEX + VANILLA_SLOT_COUNT ->
+            moveItemStackTo(movingStack, BE_INVENTORY_FIRST_SLOT_INDEX,
+                BE_INVENTORY_FIRST_SLOT_INDEX + beInventorySlotCount, false)
+        // A block entity slot: move back into the player inventory.
+        index < BE_INVENTORY_FIRST_SLOT_INDEX + beInventorySlotCount ->
+            moveItemStackTo(movingStack, VANILLA_FIRST_SLOT_INDEX,
+                VANILLA_FIRST_SLOT_INDEX + VANILLA_SLOT_COUNT, false)
+        else -> {
+            LootBags.LOGGER.warn("Invalid slot index: {}", index)
             return ItemStack.EMPTY
         }
-    } else if (index < BE_INVENTORY_FIRST_SLOT_INDEX + beInventorySlotCount) {
-        // This is a TE slot so merge the stack into the players inventory
-        if (!moveItemStackTo(sourceStack, VANILLA_FIRST_SLOT_INDEX,
-                VANILLA_FIRST_SLOT_INDEX + VANILLA_SLOT_COUNT, false)) {
-            return ItemStack.EMPTY
-        }
-    } else {
-        LootBags.LOGGER.warn("Invalid slot index: {}", index)
+    }
+
+    if (!moved) {
         return ItemStack.EMPTY
     }
 
-    // If stack size == 0 (the entire stack was moved) set slot contents to null
-    if (sourceStack.isEmpty) {
-        if (sourceSlot is LootBagSlotItemHandler) {
-            sourceSlot.extractItem(sourceStackOld.count, false)
-        } else {
-            sourceSlot.set(ItemStack.EMPTY)
-        }
-    } else {
-        if (sourceSlot is LootBagSlotItemHandler) {
-            val deltaCount = sourceStackOld.count - sourceStack.count
-            if (deltaCount > 0) {
-                sourceSlot.extractItem(deltaCount, false)
-            }
-        }
+    val movedCount = originalStack.count - movingStack.count
+    if (movedCount > 0) {
+        // Always remove through the slot: this is the only path that also updates virtual counters.
+        sourceSlot.remove(movedCount)
         sourceSlot.setChanged()
     }
 
-    sourceSlot.onTake(player, sourceStack)
-    return copyOfSourceStack
+    return originalStack
 }
 
 fun addPlayerInventorySlots(inv: Inventory, left: Int, top: Int, addSlot: (Slot) -> Slot) {

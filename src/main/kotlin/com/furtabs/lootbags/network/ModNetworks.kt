@@ -28,7 +28,9 @@ object ModNetworks {
                 val player = ctx.get().sender ?: return@consumerMainThread
                 val menu = player.containerMenu
                 if (menu is BagStorageMenu) {
-                    val idx = msg.lootBagTypeOrdinal % LootBagType.entries.size
+                    // floorMod: a negative ordinal from a modified client used to index
+                    // LootBagType.entries[-1] and throw on the server thread.
+                    val idx = Math.floorMod(msg.lootBagTypeOrdinal, LootBagType.entries.size)
                     menu.targetBagType = LootBagType.entries[idx]
                 }
                 ctx.get().setPacketHandled(true)

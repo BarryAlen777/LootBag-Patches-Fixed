@@ -7,30 +7,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "lootbags:bag_storage",
-          "functions": [
-            {
-              "function": "minecraft:copy_nbt",
-              "source": "block_entity",
-              "ops": [
-                {
-                  "source": "inventory",
-                  "target": "BlockEntityTag.inventory",
-                  "op": "replace"
-                },
-                {
-                  "source": "stored_bag_amount",
-                  "target": "BlockEntityTag.stored_bag_amount",
-                  "op": "replace"
-                },
-                {
-                  "source": "target_bag_type",
-                  "target": "BlockEntityTag.target_bag_type",
-                  "op": "replace"
-                }
-              ]
-            }
-          ]
+          "name": "lootbags:bag_storage"
         }
       ],
       "conditions": [

@@ -1,6 +1,5 @@
 package com.furtabs.lootbags.util
 
-import com.furtabs.lootbags.item.custom.LootBagItem
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Rarity
 

@@ -1,12 +1,11 @@
 package com.furtabs.lootbags.screen.custom
 
+import com.furtabs.lootbags.item.custom.LootBagItem
 import com.furtabs.lootbags.util.MAX_LOOT_BAG_ITEM_STACKS
-import com.furtabs.lootbags.util.addPlayerHotbarSlots
-import com.furtabs.lootbags.util.addPlayerInventorySlots
 import com.furtabs.lootbags.util.clearStoredOpenLoot
+import com.furtabs.lootbags.util.isOpenedBag
 import com.furtabs.lootbags.util.quickMoveStack
 import com.furtabs.lootbags.util.writeStoredOpenLoot
-import com.furtabs.lootbags.item.custom.LootBagItem
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.InteractionHand
@@ -14,6 +13,7 @@ import net.minecraft.world.entity.player.Inventory
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.inventory.AbstractContainerMenu
 import net.minecraft.world.inventory.MenuType
+import net.minecraft.world.inventory.Slot
 import net.minecraft.world.item.ItemStack
 import net.minecraftforge.items.ItemStackHandler
 import net.minecraftforge.items.SlotItemHandler
@@ -58,8 +58,29 @@ class OpenLootBagMenu : AbstractContainerMenu {
     }
 
     private fun addSlots(inv: Inventory) {
-        addPlayerInventorySlots(inv, PLAYER_INV_X, PLAYER_INV_Y, ::addSlot)
-        addPlayerHotbarSlots(inv, PLAYER_HOTBAR_X, PLAYER_HOTBAR_Y, ::addSlot)
+        // Only the slot holding the bag being opened is locked. Locking every already-opened bag
+        // (the previous behaviour) made the rest of the inventory unusable, and locking by object
+        // identity broke whenever the synced stack object was replaced.
+        val lockedPlayerSlot = when (usedHand) {
+            InteractionHand.MAIN_HAND -> inv.selected
+            InteractionHand.OFF_HAND -> Inventory.SLOT_OFFHAND
+        }
+        for (row in 0 until 3) {
+            for (col in 0 until 9) {
+                addSlot(
+                    lockedSlot(
+                        inv,
+                        col + row * 9 + 9,
+                        PLAYER_INV_X + col * 18,
+                        PLAYER_INV_Y + row * 18,
+                        lockedPlayerSlot
+                    )
+                )
+            }
+        }
+        for (col in 0 until 9) {
+            addSlot(lockedSlot(inv, col, PLAYER_HOTBAR_X + col * 18, PLAYER_HOTBAR_Y, lockedPlayerSlot))
+        }
         for (i in 0 until MAX_LOOT_BAG_ITEM_STACKS) {
             addSlot(
                 object : SlotItemHandler(lootHandler, i, LOOT_START_X + i * 18, LOOT_Y) {
@@ -67,6 +88,23 @@ class OpenLootBagMenu : AbstractContainerMenu {
                 }
             )
         }
+    }
+
+    private fun lockedSlot(
+        inv: Inventory,
+        inventoryIndex: Int,
+        x: Int,
+        y: Int,
+        lockedPlayerSlot: Int
+    ): Slot = object : Slot(inv, inventoryIndex, x, y) {
+        private fun isLocked(): Boolean =
+            inventoryIndex == lockedPlayerSlot && item.item is LootBagItem && isOpenedBag(item)
+
+        override fun mayPickup(player: Player): Boolean = !isLocked()
+
+        // The drop-key path (safeTake) never asks mayPickup, it only calls remove().
+        override fun remove(amount: Int): ItemStack =
+            if (isLocked()) ItemStack.EMPTY else super.remove(amount)
     }
 
     override fun stillValid(player: Player): Boolean = !player.isRemoved

@@ -27,11 +27,10 @@ import net.minecraftforge.common.capabilities.ForgeCapabilities
 import net.minecraftforge.common.util.LazyOptional
 import net.minecraftforge.items.ItemStackHandler
 import com.furtabs.lootbags.block.entity.ModBlockEntities
-import com.furtabs.lootbags.item.ModItems
 import com.furtabs.lootbags.item.custom.LootBagItem
 import com.furtabs.lootbags.screen.custom.BagOpenerMenu
-import com.furtabs.lootbags.util.LootBagType
-import com.furtabs.lootbags.util.asLootBagType
+import com.furtabs.lootbags.util.isOpenedBag
+import com.furtabs.lootbags.util.readStoredOpenLoot
 import com.furtabs.lootbags.util.rollLootBagDisplayedItemCount
 import com.furtabs.lootbags.util.setChangedAndUpdateBlock
 
@@ -44,11 +43,18 @@ class BagOpenerBlockEntity(
         MAX_PROGRESS
     }
 
-    private inner class BagOpenerItemHandler : LootBagItemHandler(INPUT_SLOTS_COUNT) {
+    private inner class BagOpenerItemHandler : LootBagItemHandler(INPUT_SLOTS_COUNT), SilentlyClearable {
         override fun isInputSlot(slot: Int): Boolean = true
 
         override fun onContentsChanged(slot: Int) {
             setChangedAndUpdateBlock()
+        }
+
+        /** Empties every slot without running [onContentsChanged]; used while the block is removed. */
+        override fun clearAllSilently() {
+            for (i in 0 ..< stacks.size) {
+                stacks[i] = ItemStack.EMPTY
+            }
         }
     }
 
@@ -59,12 +65,19 @@ class BagOpenerBlockEntity(
     }
 
     val inputItemHandler: ItemStackHandler = BagOpenerItemHandler()
-    val outputItemHandler: ItemStackHandler = object : ItemStackHandler(OUTPUT_SLOTS_COUNT) {
+    val outputItemHandler: ItemStackHandler = object : ItemStackHandler(OUTPUT_SLOTS_COUNT), SilentlyClearable {
         override fun isItemValid(slot: Int, stack: ItemStack): Boolean = false
         override fun insertItem(slot: Int, stack: ItemStack, simulate: Boolean): ItemStack = stack.copy()
 
         override fun onContentsChanged(slot: Int) {
             setChangedAndUpdateBlock()
+        }
+
+        /** Empties every slot without running [onContentsChanged]; used while the block is removed. */
+        override fun clearAllSilently() {
+            for (i in 0 ..< stacks.size) {
+                stacks[i] = ItemStack.EMPTY
+            }
         }
     }
 
@@ -97,16 +110,29 @@ class BagOpenerBlockEntity(
     override fun createMenu(containerId: Int, playerInventory: Inventory, player: Player): AbstractContainerMenu =
         BagOpenerMenu(containerId, playerInventory, player.level(), this, data)
 
+    /** Drops both the input and the output inventories (called from [BagOpenerBlock.onRemove]). */
     fun drops() {
-        level?.let { level ->
-            for (handler in listOf(inputItemHandler, outputItemHandler)) {
-                val inventory = SimpleContainer(handler.slots)
-                for (i in 0 ..< handler.slots) {
-                    inventory.setItem(i, handler.getStackInSlot(i))
-                }
-                Containers.dropContents(level, worldPosition, inventory)
-            }
+        val level = level ?: return
+        // Containers.dropItemStack constructs ItemEntity objects on the client too (no side guard
+        // in 1.20.1) where they are merely discarded -- skip the whole loop client-side.
+        if (level.isClientSide) {
+            return
         }
+        for (handler in listOf(inputItemHandler, outputItemHandler)) {
+            val inventory = SimpleContainer(handler.slots)
+            for (i in 0 ..< handler.slots) {
+                inventory.setItem(i, handler.getStackInSlot(i))
+            }
+            Containers.dropContents(level, worldPosition, inventory)
+            // dropContents splits the *live* stacks down to empty; replace them with proper
+            // EMPTY instances (silently: the block entity is going away, no sync needed).
+            (handler as? SilentlyClearable)?.clearAllSilently()
+        }
+    }
+
+    /** Implemented by this machine's handlers so [drops] can empty them without a sync packet. */
+    private interface SilentlyClearable {
+        fun clearAllSilently()
     }
 
     override fun saveAdditional(tag: CompoundTag) {
@@ -175,43 +201,39 @@ class BagOpenerBlockEntity(
         val level = this.level ?: return
         val serverLevel = level as? ServerLevel ?: return
 
-        val loots: List<ItemStack> = if (inputItemStack.hasTag() && inputItemStack.tag!!.contains("Items")) {
-            // This bag was already opened/viewed; extract the existing items
-            getContentsFromNBT(inputItemStack)
+        val loots: List<ItemStack> = if (isOpenedBag(inputItemStack)) {
+            // This bag was already opened/viewed; hand out exactly what is left in it.
+            readStoredOpenLoot(inputItemStack) ?: emptyList()
         } else {
-            // This is a "fresh" bag; generate loot normally
-            val bagType = bagItem.asLootBagType()
+            // This is a fresh bag; generate loot once and remember how many stacks it should hold.
+            val bagType = bagItem.type
             bagType.lootGenerator.generateLoot(
                 serverLevel,
                 LootParams.Builder(serverLevel)
                     .withParameter(LootContextParams.BLOCK_STATE, blockState)
                     .withParameter(LootContextParams.BLOCK_ENTITY, this)
                     .withParameter(LootContextParams.ORIGIN, Vec3.atCenterOf(blockPos)),
-                maxStacks = 5
+                maxStacks = rollLootBagDisplayedItemCount(serverLevel.random)
             )
         }
 
-        if (loots.isNotEmpty()) {
-            val extracted = inputItemHandler.extractItem(inputSlot, 1, false)
-            if (!extracted.isEmpty) {
-                for (loot in loots) {
-                    if (!putIntoOutputSlots(loot)) {
-                        // Optional: If output is full, drop the remaining items on the ground
-                        Containers.dropItemStack(level, worldPosition.x.toDouble(), worldPosition.y.toDouble(), worldPosition.z.toDouble(), loot)
-                    }
-                }
+        // Consume the bag even if it turned out to hold nothing. Leaving a spent bag in the input
+        // slot made the machine spin at 0 -> 60 -> reset forever and kept the slot occupied.
+        val extracted = inputItemHandler.extractItem(inputSlot, 1, false)
+        if (extracted.isEmpty) return
+
+        for (loot in loots) {
+            if (!putIntoOutputSlots(loot)) {
+                // If the output is full, drop the remaining items on the ground instead of voiding them.
+                Containers.dropItemStack(
+                    level,
+                    worldPosition.x + 0.5,
+                    worldPosition.y + 0.5,
+                    worldPosition.z + 0.5,
+                    loot
+                )
             }
         }
-    }
-
-    private fun getContentsFromNBT(stack: ItemStack): List<ItemStack> {
-        val items = mutableListOf<ItemStack>()
-        val tag = stack.tag ?: return items
-        val list = tag.getList("Items", 10) // 10 is the ID for CompoundTag
-        for (i in 0 until list.size) {
-            items.add(ItemStack.of(list.getCompound(i)))
-        }
-        return items
     }
 
     private fun putIntoOutputSlots(stack: ItemStack): Boolean {

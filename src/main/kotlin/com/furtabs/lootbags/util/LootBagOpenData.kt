@@ -4,7 +4,16 @@ import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.world.item.ItemStack
 
-private const val KEY_LOOT_ITEMS: String = "Items"
+/**
+ * Dedicated key for the loot stored inside a bag.
+ *
+ * The old code used `Items`, which is the vanilla convention for *container* block entities and
+ * container items. Keeping a private key avoids mods / tools that sniff `Items` mistaking an
+ * opened bag for a container. Bags saved by older versions (`Items`) are still read, and are
+ * migrated the next time the bag is written.
+ */
+private const val KEY_LOOT_ITEMS: String = "LootItems"
+private const val LEGACY_KEY_LOOT_ITEMS: String = "Items"
 private const val KEY_OPENED: String = "opened"
 
 /**
@@ -17,7 +26,9 @@ private const val KEY_OPENED: String = "opened"
 @Suppress("DEPRECATION")
 fun isOpenedBag(stack: ItemStack): Boolean {
     val tag = stack.tag ?: return false
-    return tag.getBoolean(KEY_OPENED) || tag.contains(KEY_LOOT_ITEMS, 9)
+    return tag.getBoolean(KEY_OPENED) ||
+        tag.contains(KEY_LOOT_ITEMS, 9) ||
+        tag.contains(LEGACY_KEY_LOOT_ITEMS, 9)
 }
 
 /**
@@ -35,6 +46,7 @@ fun writeStoredOpenLoot(stack: ItemStack, loots: List<ItemStack>) {
         }
     }
     tag.put(KEY_LOOT_ITEMS, listTag)
+    tag.remove(LEGACY_KEY_LOOT_ITEMS)
     tag.putBoolean(KEY_OPENED, true)
 }
 
@@ -44,9 +56,13 @@ fun writeStoredOpenLoot(stack: ItemStack, loots: List<ItemStack>) {
 @Suppress("DEPRECATION")
 fun readStoredOpenLoot(stack: ItemStack): List<ItemStack>? {
     val tag = stack.tag ?: return null
-    if (!tag.contains(KEY_LOOT_ITEMS, 9)) return null
+    val key = when {
+        tag.contains(KEY_LOOT_ITEMS, 9) -> KEY_LOOT_ITEMS
+        tag.contains(LEGACY_KEY_LOOT_ITEMS, 9) -> LEGACY_KEY_LOOT_ITEMS
+        else -> return null
+    }
 
-    val listTag = tag.getList(KEY_LOOT_ITEMS, 10)
+    val listTag = tag.getList(key, 10)
     val loots = mutableListOf<ItemStack>()
     for (i in 0 until listTag.size) {
         loots.add(ItemStack.of(listTag.getCompound(i)))
@@ -61,6 +77,7 @@ fun readStoredOpenLoot(stack: ItemStack): List<ItemStack>? {
 fun clearStoredOpenLoot(bagStack: ItemStack) {
     val root = bagStack.tag ?: return
     root.remove(KEY_LOOT_ITEMS)
+    root.remove(LEGACY_KEY_LOOT_ITEMS)
     root.remove(KEY_OPENED)
     if (root.isEmpty) {
         bagStack.tag = null

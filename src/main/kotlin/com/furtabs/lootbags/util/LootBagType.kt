@@ -3,7 +3,6 @@ package com.furtabs.lootbags.util
 import net.minecraft.world.item.Item
 import net.minecraft.world.level.ItemLike
 import com.furtabs.lootbags.item.ModItems
-import com.furtabs.lootbags.item.custom.LootBagItem
 import kotlin.math.pow
 
 enum class LootBagType(
@@ -64,13 +63,4 @@ enum class LootBagType(
      */
     fun amountFactorEquivalentTo(other: LootBagType): Float =
         AMOUNT_TO_NEXT_RARITY.toFloat().pow(this.rarity.toInt() - other.rarity.toInt())
-}
-
-fun LootBagItem.asLootBagType(): LootBagType = when (this) {
-    ModItems.COMMON_LOOT_BAG.get() -> LootBagType.COMMON
-    ModItems.UNCOMMON_LOOT_BAG.get() -> LootBagType.UNCOMMON
-    ModItems.RARE_LOOT_BAG.get() -> LootBagType.RARE
-    ModItems.EPIC_LOOT_BAG.get() -> LootBagType.EPIC
-    ModItems.LEGENDARY_LOOT_BAG.get() -> LootBagType.LEGENDARY
-    else -> throw IllegalArgumentException("Invalid loot bag item: $this")
 }
